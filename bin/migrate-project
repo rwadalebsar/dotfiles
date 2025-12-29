@@ -1,0 +1,180 @@
+#!/bin/bash
+# migrate-project - Set up an existing project for the handoff workflow
+# Usage: migrate-project [path-to-project]
+
+set -e
+
+# Colors
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[0;33m'
+BLUE='\033[0;34m'
+NC='\033[0m'
+
+DOTFILES_DIR="$HOME/dotfiles"
+
+print_header() {
+    echo -e "\n${BLUE}$1${NC}"
+}
+
+print_success() {
+    echo -e "  ${GREEN}✓${NC} $1"
+}
+
+print_warning() {
+    echo -e "  ${YELLOW}⚠${NC} $1"
+}
+
+print_error() {
+    echo -e "  ${RED}✗${NC} $1"
+}
+
+# Get project path
+PROJECT_PATH="${1:-.}"
+PROJECT_PATH=$(cd "$PROJECT_PATH" && pwd)
+PROJECT_NAME=$(basename "$PROJECT_PATH")
+
+echo -e "${BLUE}Migrate Project: $PROJECT_NAME${NC}"
+echo "Path: $PROJECT_PATH"
+echo "===================="
+
+cd "$PROJECT_PATH"
+
+# Check if it's a git repo
+print_header "Checking git status..."
+if [ ! -d ".git" ]; then
+    print_warning "Not a git repository. Initializing..."
+    git init
+    git branch -m main 2>/dev/null || true
+    print_success "Git initialized"
+else
+    print_success "Git repository exists"
+fi
+
+# Add .gitattributes
+print_header "Adding .gitattributes..."
+if [ -f ".gitattributes" ]; then
+    print_warning ".gitattributes already exists, skipping"
+else
+    cp "$DOTFILES_DIR/github/.gitattributes.template" .gitattributes
+    print_success "Created .gitattributes"
+fi
+
+# Add .gitignore if missing
+print_header "Checking .gitignore..."
+if [ -f ".gitignore" ]; then
+    print_success ".gitignore exists"
+else
+    # Create Python-focused .gitignore
+    cat > .gitignore << 'EOF'
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual environments
+venv/
+.venv/
+ENV/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Environment
+.env
+.env.local
+*.local
+
+# Testing
+.coverage
+htmlcov/
+.pytest_cache/
+.tox/
+
+# OS
+.DS_Store
+Thumbs.db
+EOF
+    print_success "Created .gitignore"
+fi
+
+# Add GitHub Actions workflow
+print_header "Adding GitHub Actions workflow..."
+mkdir -p .github/workflows
+if [ -f ".github/workflows/test.yml" ]; then
+    print_warning ".github/workflows/test.yml already exists, skipping"
+else
+    cp "$DOTFILES_DIR/github/workflows/python-test.yml" .github/workflows/test.yml
+    print_success "Created .github/workflows/test.yml"
+fi
+
+# Add .env.template if .env exists
+print_header "Checking environment files..."
+if [ -f ".env" ] && [ ! -f ".env.template" ]; then
+    # Create template with variable names but no values
+    sed 's/=.*/=/' .env > .env.template
+    print_success "Created .env.template from .env"
+    print_warning "Review .env.template to ensure no secrets are included!"
+elif [ -f ".env.template" ]; then
+    print_success ".env.template exists"
+else
+    print_success "No .env file found"
+fi
+
+# Add .tool-versions if not exists
+print_header "Checking tool versions..."
+if [ -f ".tool-versions" ]; then
+    print_success ".tool-versions exists"
+else
+    # Detect Python version
+    if command -v python3 &> /dev/null; then
+        PYTHON_VERSION=$(python3 --version | cut -d' ' -f2)
+        echo "python $PYTHON_VERSION" > .tool-versions
+        print_success "Created .tool-versions with Python $PYTHON_VERSION"
+    else
+        print_warning "Python not found, skipping .tool-versions"
+    fi
+fi
+
+# Stage changes
+print_header "Staging changes..."
+git add -A
+CHANGES=$(git diff --cached --name-only | wc -l)
+if [ "$CHANGES" -gt 0 ]; then
+    print_success "Staged $CHANGES file(s)"
+    echo ""
+    git diff --cached --name-only | sed 's/^/    /'
+else
+    print_success "No new changes to stage"
+fi
+
+# Summary
+echo ""
+echo -e "${BLUE}===================${NC}"
+echo -e "${GREEN}Migration complete!${NC}"
+echo ""
+echo "Next steps:"
+echo "  1. Review the changes: git diff --cached"
+echo "  2. Commit: git commit -m \"Add CI workflow and cross-platform support\""
+echo "  3. Create GitHub repo: gh repo create $PROJECT_NAME --public --source=. --push"
+echo "  4. Register for handoff: handoff add $PROJECT_PATH"
