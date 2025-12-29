@@ -2,8 +2,6 @@
 # pickup - Pull all changes when arriving at a machine
 # Usage: pickup [--skip-install] [--status]
 
-set -e
-
 # Colors
 RED='\033[0;31m'
 GREEN='\033[0;32m'
