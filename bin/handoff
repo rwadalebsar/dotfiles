@@ -2,8 +2,6 @@
 # handoff - Push all changes before switching machines
 # Usage: handoff [--dry-run] [--status] [add|remove|list] [path]
 
-set -e
-
 # Colors
 RED='\033[0;31m'
 GREEN='\033[0;32m'
