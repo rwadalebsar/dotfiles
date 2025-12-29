@@ -1,0 +1,304 @@
+#!/bin/bash
+# handoff - Push all changes before switching machines
+# Usage: handoff [--dry-run] [--status] [add|remove|list] [path]
+
+set -e
+
+# Colors
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[0;33m'
+BLUE='\033[0;34m'
+NC='\033[0m' # No Color
+
+# Config
+CONFIG_DIR="${HANDOFF_CONFIG_DIR:-$HOME/.config/handoff}"
+PROJECTS_FILE="$CONFIG_DIR/projects"
+
+# Ensure config directory exists
+mkdir -p "$CONFIG_DIR"
+
+# Create projects file if it doesn't exist
+if [ ! -f "$PROJECTS_FILE" ]; then
+    touch "$PROJECTS_FILE"
+fi
+
+# Helper functions
+print_header() {
+    echo -e "\n${BLUE}$1${NC}"
+}
+
+print_success() {
+    echo -e "  ${GREEN}✓${NC} $1"
+}
+
+print_warning() {
+    echo -e "  ${YELLOW}⚠${NC} $1"
+}
+
+print_error() {
+    echo -e "  ${RED}✗${NC} $1"
+}
+
+print_info() {
+    echo -e "  $1"
+}
+
+# Get machine name for WIP commits
+get_machine_name() {
+    if grep -qEi "(Microsoft|WSL)" /proc/version 2>/dev/null; then
+        echo "wsl"
+    elif [[ "$OSTYPE" == "darwin"* ]]; then
+        echo "mac"
+    else
+        echo "$(hostname)"
+    fi
+}
+
+# Add a project to the list
+add_project() {
+    local path="$1"
+
+    # Expand to absolute path
+    path=$(cd "$path" 2>/dev/null && pwd)
+
+    if [ ! -d "$path/.git" ]; then
+        echo -e "${RED}Error: $path is not a git repository${NC}"
+        exit 1
+    fi
+
+    # Check if already in list
+    if grep -Fxq "$path" "$PROJECTS_FILE" 2>/dev/null; then
+        echo -e "${YELLOW}Project already registered: $path${NC}"
+        return
+    fi
+
+    echo "$path" >> "$PROJECTS_FILE"
+    echo -e "${GREEN}Added: $path${NC}"
+}
+
+# Remove a project from the list
+remove_project() {
+    local path="$1"
+
+    # Expand to absolute path if it exists
+    if [ -d "$path" ]; then
+        path=$(cd "$path" && pwd)
+    fi
+
+    if grep -Fxq "$path" "$PROJECTS_FILE" 2>/dev/null; then
+        grep -Fxv "$path" "$PROJECTS_FILE" > "$PROJECTS_FILE.tmp"
+        mv "$PROJECTS_FILE.tmp" "$PROJECTS_FILE"
+        echo -e "${GREEN}Removed: $path${NC}"
+    else
+        echo -e "${YELLOW}Project not found in list: $path${NC}"
+    fi
+}
+
+# List all registered projects
+list_projects() {
+    if [ ! -s "$PROJECTS_FILE" ]; then
+        echo -e "${YELLOW}No projects registered.${NC}"
+        echo -e "Use '${BLUE}handoff add /path/to/project${NC}' to add one."
+        return
+    fi
+
+    echo -e "${BLUE}Registered projects:${NC}"
+    while IFS= read -r project; do
+        if [ -d "$project" ]; then
+            echo -e "  ${GREEN}✓${NC} $project"
+        else
+            echo -e "  ${RED}✗${NC} $project (not found)"
+        fi
+    done < "$PROJECTS_FILE"
+}
+
+# Process a single project
+process_project() {
+    local project="$1"
+    local dry_run="$2"
+    local status_only="$3"
+    local machine=$(get_machine_name)
+
+    print_header "[$project]"
+
+    # Check if directory exists
+    if [ ! -d "$project" ]; then
+        print_error "Directory not found"
+        return 1
+    fi
+
+    # Check if it's a git repo
+    if [ ! -d "$project/.git" ]; then
+        print_error "Not a git repository"
+        return 1
+    fi
+
+    cd "$project"
+
+    # Get current branch
+    local branch=$(git branch --show-current 2>/dev/null || echo "detached")
+    print_info "Branch: $branch"
+
+    # Check for uncommitted changes
+    local has_changes=false
+    local staged=$(git diff --cached --name-only | wc -l)
+    local unstaged=$(git diff --name-only | wc -l)
+    local untracked=$(git ls-files --others --exclude-standard | wc -l)
+
+    if [ "$staged" -gt 0 ] || [ "$unstaged" -gt 0 ] || [ "$untracked" -gt 0 ]; then
+        has_changes=true
+        print_info "Changes: $staged staged, $unstaged unstaged, $untracked untracked"
+    else
+        print_info "Status: Clean"
+    fi
+
+    # Status only mode
+    if [ "$status_only" = true ]; then
+        return 0
+    fi
+
+    # Commit changes if any
+    if [ "$has_changes" = true ]; then
+        if [ "$dry_run" = true ]; then
+            print_warning "Would commit: \"WIP: handoff from $machine\""
+        else
+            git add -A
+            git commit -m "WIP: handoff from $machine" --no-verify
+            print_success "Committed: \"WIP: handoff from $machine\""
+        fi
+    fi
+
+    # Check if we need to push
+    local upstream=$(git rev-parse --abbrev-ref --symbolic-full-name @{u} 2>/dev/null || echo "")
+
+    if [ -z "$upstream" ]; then
+        # No upstream set
+        if [ "$dry_run" = true ]; then
+            print_warning "Would push with --set-upstream"
+        else
+            git push --set-upstream origin "$branch" 2>/dev/null || {
+                print_warning "Could not push (no remote?)"
+                return 0
+            }
+            print_success "Pushed to origin/$branch (set upstream)"
+        fi
+    else
+        # Check if ahead of remote
+        local ahead=$(git rev-list --count @{u}..HEAD 2>/dev/null || echo "0")
+
+        if [ "$ahead" -gt 0 ] || [ "$has_changes" = true ]; then
+            if [ "$dry_run" = true ]; then
+                print_warning "Would push $ahead commit(s)"
+            else
+                git push
+                print_success "Pushed to origin/$branch"
+            fi
+        else
+            print_success "Already up to date"
+        fi
+    fi
+
+    return 0
+}
+
+# Main handoff function
+run_handoff() {
+    local dry_run=false
+    local status_only=false
+
+    # Parse flags
+    while [[ "$1" == --* ]]; do
+        case "$1" in
+            --dry-run)
+                dry_run=true
+                shift
+                ;;
+            --status)
+                status_only=true
+                shift
+                ;;
+            *)
+                echo -e "${RED}Unknown option: $1${NC}"
+                exit 1
+                ;;
+        esac
+    done
+
+    echo -e "${BLUE}Handoff starting...${NC}"
+
+    if [ "$dry_run" = true ]; then
+        echo -e "${YELLOW}(Dry run - no changes will be made)${NC}"
+    fi
+
+    if [ "$status_only" = true ]; then
+        echo -e "${YELLOW}(Status only)${NC}"
+    fi
+
+    # Check if projects file has entries
+    if [ ! -s "$PROJECTS_FILE" ]; then
+        echo -e "\n${YELLOW}No projects registered.${NC}"
+        echo -e "Use '${BLUE}handoff add /path/to/project${NC}' to register projects."
+        exit 0
+    fi
+
+    local failed=0
+    local count=0
+
+    while IFS= read -r project; do
+        # Skip empty lines and comments
+        [[ -z "$project" || "$project" == \#* ]] && continue
+
+        ((count++))
+        process_project "$project" "$dry_run" "$status_only" || ((failed++))
+    done < "$PROJECTS_FILE"
+
+    # Summary
+    echo -e "\n${BLUE}────────────────────────────${NC}"
+    if [ "$status_only" = true ]; then
+        echo -e "${GREEN}Status check complete.${NC}"
+    elif [ "$dry_run" = true ]; then
+        echo -e "${GREEN}Dry run complete.${NC}"
+    elif [ "$failed" -eq 0 ]; then
+        echo -e "${GREEN}Handoff complete.${NC}"
+        echo -e "${GREEN}Safe to switch machines.${NC}"
+    else
+        echo -e "${YELLOW}Handoff complete with $failed issue(s).${NC}"
+    fi
+}
+
+# Main entry point
+case "${1:-}" in
+    add)
+        if [ -z "${2:-}" ]; then
+            echo -e "${RED}Usage: handoff add /path/to/project${NC}"
+            exit 1
+        fi
+        add_project "$2"
+        ;;
+    remove)
+        if [ -z "${2:-}" ]; then
+            echo -e "${RED}Usage: handoff remove /path/to/project${NC}"
+            exit 1
+        fi
+        remove_project "$2"
+        ;;
+    list)
+        list_projects
+        ;;
+    help|--help|-h)
+        echo "handoff - Push all changes before switching machines"
+        echo ""
+        echo "Usage:"
+        echo "  handoff              Run handoff on all registered projects"
+        echo "  handoff --dry-run    Show what would happen without making changes"
+        echo "  handoff --status     Just show status of all projects"
+        echo "  handoff add PATH     Register a project"
+        echo "  handoff remove PATH  Unregister a project"
+        echo "  handoff list         List registered projects"
+        echo "  handoff help         Show this help"
+        ;;
+    *)
+        run_handoff "$@"
+        ;;
+esac

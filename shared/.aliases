@@ -1,0 +1,45 @@
+# Shared aliases - works on both bash and zsh
+# Sourced by both .bashrc and .zshrc
+
+# Navigation
+alias ..="cd .."
+alias ...="cd ../.."
+alias ....="cd ../../.."
+
+# List files
+alias ll="ls -alF"
+alias la="ls -A"
+alias l="ls -CF"
+
+# Git shortcuts
+alias g="git"
+alias gs="git status"
+alias gd="git diff"
+alias gp="git pull"
+alias gps="git push"
+alias gc="git commit"
+alias gco="git checkout"
+alias gb="git branch"
+alias gl="git log --oneline --graph --decorate -10"
+alias gaa="git add -A"
+
+# Safety nets
+alias rm="rm -i"
+alias cp="cp -i"
+alias mv="mv -i"
+
+# Shortcuts
+alias c="clear"
+alias h="history"
+alias projects="cd ~/projects"
+
+# Development
+alias serve="python3 -m http.server"
+
+# mise (tool version manager)
+alias mi="mise install"
+
+# Custom handoff commands
+# These are in ~/dotfiles/bin which is added to PATH
+# handoff - push all changes before switching machines
+# pickup  - pull all changes when arriving at a machine

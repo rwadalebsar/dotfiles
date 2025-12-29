@@ -1,0 +1,11 @@
+# Handoff Projects Configuration
+# List one project directory per line
+# Lines starting with # are comments
+#
+# Example:
+# /home/username/projects/my-app
+# /home/username/projects/another-project
+# /home/username/dotfiles
+#
+# Add projects using: handoff add /path/to/project
+# Or edit this file directly at ~/.config/handoff/projects

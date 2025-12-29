@@ -1,0 +1,41 @@
+[user]
+    name = Abdullah Alfadhli
+    email = abdullah@ebsar.com.sa
+
+[init]
+    defaultBranch = main
+
+[core]
+    autocrlf = input
+    eol = lf
+    editor = code --wait
+    excludesfile = ~/.gitignore_global
+
+[pull]
+    rebase = false
+
+[push]
+    default = current
+    autoSetupRemote = true
+
+[fetch]
+    prune = true
+
+[diff]
+    colorMoved = default
+
+[merge]
+    conflictstyle = diff3
+
+[alias]
+    st = status
+    co = checkout
+    br = branch
+    ci = commit
+    lg = log --oneline --graph --decorate -10
+    last = log -1 HEAD
+    unstage = reset HEAD --
+    wip = !git add -A && git commit -m \"WIP: work in progress\"
+
+[color]
+    ui = auto
