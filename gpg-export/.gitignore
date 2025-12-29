@@ -1,0 +1,4 @@
+# Never commit GPG keys to git
+*.key
+private.key
+public.key
