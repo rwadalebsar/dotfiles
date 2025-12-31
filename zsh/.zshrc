@@ -63,6 +63,9 @@ export PROJECTS_DIR="$HOME/projects"
 # Handoff configuration directory
 export HANDOFF_CONFIG_DIR="$HOME/.config/handoff"
 
+# Google API Key (for AI image generation)
+export GOOGLE_API_KEY="AIzaSyB0TM9jGgt4u82tswsQuXQwI2Q6GQbOQS4"
+
 # Key bindings (emacs-style)
 bindkey -e
 bindkey '^[[A' history-search-backward
